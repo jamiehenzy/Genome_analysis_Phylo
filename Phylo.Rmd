@@ -1,0 +1,127 @@
+---
+title: 
+author: 
+date: 
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##### Required packages. Note: Most of the installations are through CRAN and use the formal install.packages("")
+##### The package "phangorn" can be installed via Bioconductor.
+```{r, eval=FALSE}
+BiocManager::install("phangorn")
+install.packages("ape")
+install.packages("seqinr")
+install.packages("ggtree")
+```
+
+##### Load libraries
+```{r, message=FALSE, warning=FALSE}
+library(ape)
+library(phangorn)
+library(seqinr)
+library(ggtree)
+library(ggplot2)
+```
+##### 1. Read in and explore the alignment
+```{r}
+seqs <- read.FASTA("fish_align.fasta", type="AA")
+```
+##### Explore the alignment before doing anything else
+```{r}
+length(seqs)          # number of sequences
+names(seqs)           # represent fish species
+seqs                  # summary including sequence lengths
+```
+##### Convert the sequences to a format phangorn uses
+```{r}
+dat <- as.phyDat(seqs)
+```
+##### 2. NJ method builds trees from pairwise distances
+#####  Create the distance matrix before building the tree
+```{r}
+dist_matrix <- dist.ml(dat)
+```
+##### Look at the raw distances
+```{r}
+print(dist_matrix)
+```
+##### 3. Build distance-based tree (NJ) 
+```{r}
+nj_tree <- NJ(dist_matrix)
+```
+##### Is the tree rooted or unrooted? 
+```{r}
+is.rooted(nj_tree)
+```
+
+##### Plot the tree
+```{r}
+plot(nj_tree, type="unrooted", main="Unrooted Neighbor-Joining Tree")
+```
+##### Now we build a midpoint-rooted tree and plot it
+```{r}
+nj_rooted <- midpoint(nj_tree)
+plot(nj_rooted, main="Midpoint-rooted Neighbor-Joining Tree")
+```
+##### 4. Now we'll build an ML tree
+```{r}
+fit <- pml(nj_tree, dat)
+```
+
+##### Try a few models
+```{r}
+fit_JTT <- optim.pml(fit, model = "JTT")
+fit_WAG <- optim.pml(fit, model = "WAG")
+fit_LG  <- optim.pml(fit, model = "LG")
+```
+##### Compare models using AIC - which fits the data best?
+```{r}
+cat("JTT AIC:", AIC(fit_JTT), "\n")
+cat("WAG AIC:", AIC(fit_WAG), "\n")
+cat("LG AIC:",  AIC(fit_LG),  "\n")
+```
+##### Use the best fitting model going forward
+```{r}
+fit_optimized <- fit_JTT
+```
+
+##### 5. Compare NJ and ML trees visually
+##### Do they agree? Where do they differ?
+```{r}
+par(mfrow=c(1,2))
+plot(midpoint(nj_rooted), main="Neighbor-Joining")
+plot(midpoint(fit_optimized$tree), main="Maximum Likelihood (JTT)")
+par(mfrow=c(1,1))
+```
+
+##### 6. Run bootstrapping
+```{r, message=FALSE, warning=FALSE, results='hide'}
+bs <- bootstrap.pml(fit_optimized, bs=100)
+```
+##### Plot with bootstrap values
+```{r}
+bs_tree <- plotBS(midpoint(fit_optimized$tree), bs, 
+                  main="ML Tree with Bootstrap Support")
+```
+##### How many nodes have strong support (>= 70%)?
+```{r}
+bs_values <- as.numeric(bs_tree$node.label)
+cat("Nodes with bootstrap >= 0.70:", sum(bs_values >= 0.70, na.rm=TRUE), "\n")
+cat("Nodes with bootstrap < 0.70:", sum(bs_values < 0.70, na.rm=TRUE), "\n")
+```
+##### 7. Pretty visualization with ggtree
+##### Add a scale bar which is important for interpreting branch lengths
+```{r}
+ggtree(midpoint(bs_tree)) + 
+  geom_tiplab(linewidth=3) + 
+  geom_nodelab(aes(label=label), linewidth=3, hjust=1.2) +
+  geom_treescale() +
+  ggtitle("Maximum Likelihood Phylogeny of Fish Sequences (JTT model)")
+```
+##### Save an image of your tree!
+```{r}
+ggsave("fish_tree.png", width=8, height=10, dpi=300)
+```
